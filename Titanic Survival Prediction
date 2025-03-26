@@ -1,0 +1,295 @@
+"""
+Titanic Survival Prediction
+---------------------------
+This script implements a complete pipeline for predicting Titanic survival.
+It covers:
+    - Data loading and exploratory data analysis (EDA)
+    - Advanced feature engineering (e.g., FamilySize, Title extraction)
+    - Data preprocessing using a ColumnTransformer pipeline
+    - Model building and hyperparameter tuning using GridSearchCV on a RandomForestClassifier
+    - Evaluation with accuracy, classification report, confusion matrix, and feature importance visualization
+    - Model persistence (saving the best model)
+
+Requirements:
+    - tested.csv: Titanic dataset with columns such as 'PassengerId', 'Survived', 'Pclass',
+                   'Name', 'Sex', 'Age', 'SibSp', 'Parch', 'Ticket', 'Fare', 'Cabin', 'Embarked'
+    - Python libraries: pandas, numpy, matplotlib, seaborn, scikit-learn, joblib
+
+Usage:
+    Ensure "tested.csv" is in the working directory, then run:
+        python titanic_survival.py
+
+This script is designed to be both efficient and impressive as a data science portfolio project.
+"""
+
+import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
+import seaborn as sns
+import joblib
+
+from sklearn.model_selection import train_test_split, GridSearchCV, cross_val_score
+from sklearn.pipeline import Pipeline
+from sklearn.compose import ColumnTransformer
+from sklearn.impute import SimpleImputer
+from sklearn.preprocessing import OneHotEncoder, StandardScaler
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.metrics import classification_report, accuracy_score, confusion_matrix
+
+# -------------------------------------------
+# Step 1: Data Loading
+# -------------------------------------------
+def load_data(file_path):
+    """
+    Load the Titanic dataset from the CSV file.
+
+    Args:
+        file_path (str): Path to the CSV file.
+    Returns:
+        pd.DataFrame: Loaded dataset.
+    """
+    df = pd.read_csv(file_path) #You file path
+    return df
+
+# -------------------------------------------
+# Step 2: Exploratory Data Analysis (EDA)
+# -------------------------------------------
+def perform_eda(df):
+    """
+    Perform exploratory data analysis (EDA) on the dataset.
+    Prints basic information and displays key visualizations.
+
+    Args:
+        df (pd.DataFrame): Titanic dataset.
+    """
+    print("----- Data Head -----")
+    print(df.head())
+    print("\n----- Data Info -----")
+    print(df.info())
+    print("\n----- Summary Statistics -----")
+    print(df.describe())
+
+    # Visualize distribution of Age, Fare, and count of Survived
+    plt.figure(figsize=(14, 4))
+    plt.subplot(1, 3, 1)
+    sns.histplot(df['Age'].dropna(), bins=30, kde=True)
+    plt.title("Age Distribution")
+
+    plt.subplot(1, 3, 2)
+    sns.histplot(df['Fare'].dropna(), bins=30, kde=True)
+    plt.title("Fare Distribution")
+
+    plt.subplot(1, 3, 3)
+    sns.countplot(x='Survived', data=df)
+    plt.title("Survival Counts")
+    plt.tight_layout()
+    plt.show()
+
+    # Correlation heatmap for selected numeric features
+    numeric_cols = ['Age', 'Fare', 'SibSp', 'Parch']
+    plt.figure(figsize=(6, 5))
+    sns.heatmap(df[numeric_cols].corr(), annot=True, cmap="coolwarm")
+    plt.title("Correlation Matrix")
+    plt.show()
+
+# -------------------------------------------
+# Step 3: Feature Engineering
+# -------------------------------------------
+def feature_engineering(df):
+    """
+    Enhance the dataset by engineering new features.
+    Creates a FamilySize feature and extracts Title from Name.
+
+    Args:
+        df (pd.DataFrame): Original Titanic dataset.
+    Returns:
+        pd.DataFrame: Dataset with new features.
+    """
+    # Create FamilySize feature (including self)
+    df['FamilySize'] = df['SibSp'] + df['Parch'] + 1
+
+    # Extract Title from Name using regex pattern for titles (e.g., 'Mr.', 'Mrs.')
+    df['Title'] = df['Name'].str.extract(' ([A-Za-z]+)\.', expand=False)
+    # Group rare titles into a single category
+    df['Title'] = df['Title'].replace(['Lady', 'Countess','Capt', 'Col','Don', 
+                                       'Dr', 'Major', 'Rev', 'Sir', 'Jonkheer', 'Dona'], 'Rare')
+    # Simplify common titles
+    df['Title'] = df['Title'].replace({'Mlle': 'Miss', 'Ms': 'Miss', 'Mme': 'Mrs'})
+    return df
+
+# -------------------------------------------
+# Step 4: Data Preprocessing
+# -------------------------------------------
+def preprocess_data(df):
+    """
+    Preprocess the dataset by dropping unnecessary columns,
+    separating target and features, and building a transformation pipeline.
+
+    Args:
+        df (pd.DataFrame): DataFrame after feature engineering.
+    Returns:
+        tuple: (X, y, preprocessor) where:
+               - X is the feature DataFrame.
+               - y is the target Series.
+               - preprocessor is a ColumnTransformer for the pipeline.
+    """
+    # Drop columns that are not useful for prediction.
+    df = df.drop(['PassengerId', 'Ticket', 'Cabin'], axis=1, errors='ignore')
+    
+    # Separate target variable 'Survived'
+    y = df['Survived']
+    X = df.drop('Survived', axis=1)
+    
+    # Define which features to treat as numeric and which as categorical.
+    # Treat 'Pclass' as categorical as it is ordinal.
+    numeric_features = ['Age', 'Fare', 'SibSp', 'Parch', 'FamilySize']
+    categorical_features = ['Pclass', 'Sex', 'Embarked', 'Title']
+    
+    # Numeric transformer: impute missing values and standardize
+    numeric_transformer = Pipeline(steps=[
+        ('imputer', SimpleImputer(strategy='median')),
+        ('scaler', StandardScaler())
+    ])
+    
+    # Categorical transformer: impute missing values and one-hot encode
+    categorical_transformer = Pipeline(steps=[
+        ('imputer', SimpleImputer(strategy='most_frequent')),
+        ('onehot', OneHotEncoder(handle_unknown='ignore'))
+    ])
+    
+    # Combine transformers into a single preprocessor
+    preprocessor = ColumnTransformer(transformers=[
+        ('num', numeric_transformer, numeric_features),
+        ('cat', categorical_transformer, categorical_features)
+    ])
+    
+    return X, y, preprocessor
+
+# -------------------------------------------
+# Step 5: Model Building and Hyperparameter Tuning
+# -------------------------------------------
+def build_model(preprocessor):
+    """
+    Build the machine learning pipeline, including preprocessing and the classifier.
+    Uses GridSearchCV for hyperparameter tuning of the RandomForestClassifier.
+
+    Args:
+        preprocessor: ColumnTransformer for data preprocessing.
+    Returns:
+        GridSearchCV: Configured grid search object.
+    """
+    # Create pipeline with preprocessor and classifier
+    pipeline = Pipeline(steps=[
+        ('preprocessor', preprocessor),
+        ('classifier', RandomForestClassifier(random_state=42))
+    ])
+    
+    # Define hyperparameter grid for tuning
+    param_grid = {
+        'classifier__n_estimators': [100, 200, 300],
+        'classifier__max_depth': [None, 5, 10],
+        'classifier__min_samples_split': [2, 5, 10],
+    }
+    
+    grid_search = GridSearchCV(pipeline, param_grid, cv=5, scoring='accuracy', n_jobs=-1)
+    return grid_search
+
+# -------------------------------------------
+# Step 6: Model Evaluation
+# -------------------------------------------
+def evaluate_model(model, X_test, y_test):
+    """
+    Evaluate the best model on the test data. Prints accuracy, classification report,
+    and plots the confusion matrix and feature importance.
+
+    Args:
+        model: Trained model.
+        X_test: Test features.
+        y_test: Test target.
+    """
+    y_pred = model.predict(X_test)
+    acc = accuracy_score(y_test, y_pred)
+    print("Test Accuracy: {:.2f}%".format(acc * 100))
+    print("\nClassification Report:")
+    print(classification_report(y_test, y_pred))
+    
+    # Plot confusion matrix
+    cm = confusion_matrix(y_test, y_pred)
+    plt.figure(figsize=(6,4))
+    sns.heatmap(cm, annot=True, fmt='d', cmap='Blues',
+                xticklabels=['Did not survive', 'Survived'],
+                yticklabels=['Did not survive', 'Survived'])
+    plt.ylabel('Actual')
+    plt.xlabel('Predicted')
+    plt.title('Confusion Matrix')
+    plt.show()
+
+    # Feature Importance Visualization (if supported by classifier)
+    classifier = model.named_steps['classifier']
+    preprocessor = model.named_steps['preprocessor']
+    
+    # Retrieve feature names from preprocessor: numeric and one-hot features
+    num_features = preprocessor.transformers_[0][2]
+    cat_features = list(preprocessor.named_transformers_['cat'].named_steps['onehot'].get_feature_names_out())
+    all_features = num_features + cat_features
+
+    if hasattr(classifier, 'feature_importances_'):
+        feature_importances = classifier.feature_importances_
+        fi_df = pd.DataFrame({'Feature': all_features, 'Importance': feature_importances})
+        fi_df = fi_df.sort_values(by='Importance', ascending=False)
+        plt.figure(figsize=(10, 6))
+        sns.barplot(x='Importance', y='Feature', data=fi_df)
+        plt.title('Feature Importances')
+        plt.show()
+
+# -------------------------------------------
+# Step 7: Model Persistence
+# -------------------------------------------
+def save_model(model, filename='best_titanic_model.pkl'):
+    """
+    Save the trained model to disk using joblib.
+
+    Args:
+        model: Trained model.
+        filename (str): File name for saving the model.
+    """
+    joblib.dump(model, filename)
+    print(f"Model saved to {filename}")
+
+# -------------------------------------------
+# Main Function: End-to-End Pipeline
+# -------------------------------------------
+def main():
+    # Load dataset
+    df = load_data('tested.csv')
+    
+    # Perform EDA (exploratory step, can be commented out after initial analysis)
+    perform_eda(df)
+    
+    # Feature engineering: add new features
+    df = feature_engineering(df)
+    
+    # Preprocess the data: split into features and target, create transformer
+    X, y, preprocessor = preprocess_data(df)
+    
+    # Split data into training and test sets (80/20 split)
+    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
+    
+    # Build model pipeline and set up hyperparameter tuning
+    grid_search = build_model(preprocessor)
+    print("Training model with GridSearchCV...")
+    grid_search.fit(X_train, y_train)
+    print("Best parameters found:", grid_search.best_params_)
+    
+    # Evaluate the best model on the test set
+    evaluate_model(grid_search.best_estimator_, X_test, y_test)
+    
+    # Optional: Evaluate via cross-validation on training data
+    cv_scores = cross_val_score(grid_search.best_estimator_, X_train, y_train, cv=5, scoring='accuracy')
+    print("Cross-validation accuracy: {:.2f}% ± {:.2f}%".format(cv_scores.mean()*100, cv_scores.std()*100))
+    
+    # Save the best model for future use
+    save_model(grid_search.best_estimator_)
+
+if __name__ == '__main__':
+    main()
