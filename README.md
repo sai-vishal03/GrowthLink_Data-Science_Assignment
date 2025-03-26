@@ -30,3 +30,46 @@ Requirements
 
 You can install the required libraries with:
 cmd: pip install -r requirements.txt
+Note: A requirements.txt file is included with the project.
+
+How to Run the Project:
+Clone the Repository:
+cmd: 
+git clone <repository_url>
+cd <repository_directory>
+Ensure tested.csv is in the project directory.
+
+Run the Script:
+cmd: python titanic_survival.py
+
+The script will:
+Load and perform exploratory data analysis (EDA).
+Engineer new features and preprocess the data.
+Train a Random Forest classifier with hyperparameter tuning.
+Evaluate the model and display performance metrics.
+Save the best model to disk.
+
+Project Structure:
+├── titanic_survival.py   # Main Python script containing the entire pipeline
+├── tested.csv            # Titanic dataset file
+├── requirements.txt      # List of required Python libraries
+└── README.md             # This file
+
+Evaluation & Results: The project prints out:
+Basic EDA information and visualizations.
+The best hyperparameters found by GridSearchCV.
+Test accuracy, classification report, and confusion matrix.
+A feature importance plot showing which features were most useful for predicting survival.
+
+Innovation & Creativity:
+Advanced Feature Engineering: The project extracts a passenger's title from their name and calculates family size.
+Comprehensive EDA: Visualizations and a correlation heatmap help understand the dataset.
+Optimized Pipeline: Uses scikit-learn’s Pipeline and ColumnTransformer for clean, efficient code.
+Hyperparameter Tuning: GridSearchCV is used to optimize model performance.
+
+License: This project is for educational purposes. You are free to use and modify the code.
+
+Contact:
+For any questions or suggestions, please contact:
+Email: help.growthlink@gmail.com
+Website: GrowthLink
